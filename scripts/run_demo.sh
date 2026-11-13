@@ -26,16 +26,6 @@ BACKEND_DIR="${ROOT_DIR}/backend"
 WEB_DIR="${ROOT_DIR}/apps/web"
 VENV_DIR="${BACKEND_DIR}/.venv"
 
-# Prefer the pyenv 3.11 interpreter (bare python3 is 3.9 on this sandbox).
-PYENV_PY="${HOME}/.pyenv/versions/3.11.15/bin/python"
-if [[ -x "${PYENV_PY}" ]]; then
-  PYTHON_BIN="${PYENV_PY}"
-elif command -v python3.11 >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python3.11)"
-else
-  PYTHON_BIN="$(command -v python3)"
-fi
-
 # --- Args ---------------------------------------------------------------------
 USE_POSTGRES=0
 for arg in "$@"; do
@@ -48,6 +38,28 @@ for arg in "$@"; do
     *) echo "Unknown argument: ${arg}" >&2; exit 2 ;;
   esac
 done
+
+supports_python() {
+  "$1" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1
+}
+
+VENV_PY="${VENV_DIR}/bin/python"
+if [[ -x "${VENV_PY}" ]] && ! supports_python "${VENV_PY}"; then
+  echo "[run_demo] Move backend/.venv aside and rerun with Python 3.11 or newer." >&2
+  exit 1
+fi
+
+PYTHON_BIN=""
+for candidate in python3.11 python3 "${HOME}/.pyenv/versions/3.11.15/bin/python"; do
+  if command -v "${candidate}" >/dev/null 2>&1 && supports_python "${candidate}"; then
+    PYTHON_BIN="$(command -v "${candidate}")"
+    break
+  fi
+done
+if [[ ! -x "${VENV_PY}" && -z "${PYTHON_BIN}" ]]; then
+  echo "[run_demo] Python 3.11 or newer is required. On macOS: brew install python@3.11" >&2
+  exit 1
+fi
 
 # --- Cleanup trap -------------------------------------------------------------
 UVICORN_PID=""
