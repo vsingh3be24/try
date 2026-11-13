@@ -75,15 +75,16 @@ def _read_bounded_response(response, max_bytes: int, *, clock=time.monotonic) ->
     deadline = clock() + MAX_RESPONSE_SECONDS
     chunks: list[bytes] = []
     total = 0
-    socket_file = getattr(response, "fp", None)
-    raw_socket = getattr(getattr(socket_file, "raw", None), "_sock", None)
     while True:
         remaining = deadline - clock()
         if remaining <= 0:
             raise SourceFetchError(
                 f"response exceeded {MAX_RESPONSE_SECONDS}-second time limit"
             )
-        if raw_socket is not None:
+        # HTTPResponse can release its socket during the final nonempty read.
+        socket_file = getattr(response, "fp", None)
+        raw_socket = getattr(getattr(socket_file, "raw", None), "_sock", None)
+        if raw_socket is not None and raw_socket.fileno() >= 0:
             raw_socket.settimeout(min(18.0, remaining))
         chunk = response.read(min(RESPONSE_CHUNK_BYTES, max_bytes + 1 - total))
         if not chunk:

@@ -1,6 +1,8 @@
 """Offline fixtures for allow-listed official live notice sources."""
 
+from http.client import HTTPResponse
 from pathlib import Path
+import socket
 from threading import Event
 
 import pytest
@@ -244,6 +246,26 @@ def test_http_response_read_has_an_overall_time_limit():
     times = iter((0.0, 0.0, 46.0))
     with pytest.raises(SourceFetchError, match="45-second time limit"):
         _read_bounded_response(EndlessResponse(), 200_000, clock=lambda: next(times))
+
+
+@pytest.mark.parametrize(
+    "body_headers, body",
+    [
+        (b"Content-Length: 6", b"notice"),
+        (b"Transfer-Encoding: chunked", b"6\r\nnotice\r\n0\r\n\r\n"),
+        (b"Connection: close", b"notice"),
+    ],
+)
+def test_http_response_finishes_when_body_reader_closes_socket(body_headers, body):
+    client, server = socket.socketpair()
+    with client, server:
+        server.sendall(b"HTTP/1.1 200 OK\r\n" + body_headers + b"\r\n\r\n" + body)
+        server.shutdown(socket.SHUT_WR)
+        with HTTPResponse(client) as response:
+            response.begin()
+            # urllib releases its socket reference after creating the response.
+            client.close()
+            assert _read_bounded_response(response, 1000) == b"notice"
 
 
 def test_http_response_rejects_oversized_content_length():
